@@ -137,7 +137,7 @@ void app_main(void)
 
     //lets tweak the power level to make things interesting
     uint random_power;
-    random_power = esp_random()%7;
+    random_power = esp_random()%8;
     if (random_power == 0){
        esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT,ESP_PWR_LVL_N12);
     }
