@@ -18,8 +18,6 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 
-#define DELAY_IN_S 30
-
 static const char* LOG_TAG = "open_haystack";
 
 /** Callback function for BT events */
@@ -47,6 +45,19 @@ static uint8_t public_keys[][28] = {
     {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc},
     // ...
 };
+
+bool to_hex(char* dest, size_t dest_len, const uint8_t* values, size_t val_len) {
+    if(dest_len < (val_len*2+1)) /* check that dest is large enough */
+        return false;
+    *dest = '\0'; /* in case val_len==0 */
+    while(val_len--) {
+        /* sprintf directly to where dest points */
+        sprintf(dest, "%02X", *values);
+        dest += 2;
+        ++values;
+    }
+    return true;
+}
 
 /* https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/bluetooth/esp_gap_ble.html#_CPPv420esp_ble_adv_params_t */
 static esp_ble_adv_params_t ble_adv_params = {
@@ -123,6 +134,35 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     esp_bt_controller_init(&bt_cfg);
+
+    //lets tweak the power level to make things interesting
+    uint random_power;
+    random_power = esp_random()%7;
+    if (random_power == 0){
+       esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT,ESP_PWR_LVL_N12);
+    }
+    if (random_power == 1){
+      esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT,ESP_PWR_LVL_N9);
+    }
+    if (random_power == 2){
+      esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT,ESP_PWR_LVL_N6);
+    }
+    if (random_power == 3){
+      esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT,ESP_PWR_LVL_N3);
+    }
+    if (random_power == 4){
+      esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT,ESP_PWR_LVL_N0);
+    }
+    if (random_power == 5){
+      esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT,ESP_PWR_LVL_P3);
+    }
+    if (random_power == 6){
+      esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT,ESP_PWR_LVL_P6);
+    }
+     if (random_power == 7){
+      esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT,ESP_PWR_LVL_P9);
+    }
+
     esp_bt_controller_enable(ESP_BT_MODE_BLE);
 
     esp_bluedroid_init();
@@ -132,10 +172,24 @@ void app_main(void)
 
     uint8_t* public_key;
     uint key_index = 0;
+    uint delay_in_s;
     while(true) {
         esp_err_t status;
 
-	public_key = public_keys[key_index];
+        //Pick random key
+        key_index = esp_random() % (sizeof(public_keys)/sizeof(public_keys[0]));
+
+	    public_key = public_keys[key_index];
+        char buf[28*2+1]; // one extra for \0
+
+
+        int pwrAdv  = esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_ADV);
+        int pwrScan = esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_SCAN);
+        int pwrDef  = esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_DEFAULT);
+        ESP_LOGI(LOG_TAG, "*****Power Settings: ADV %d,SCAN %d,DEFAULT %d)",pwrAdv,pwrScan,pwrDef);
+
+        if(to_hex(buf, sizeof(buf), public_key, 28))
+            ESP_LOGI(LOG_TAG,"tag: %s\n", buf);
         set_addr_from_key(rnd_addr, public_key);
         set_payload_from_key(adv_data, public_key);
 
@@ -154,11 +208,12 @@ void app_main(void)
             ESP_LOGE(LOG_TAG, "couldn't configure BLE adv: %s", esp_err_to_name(status));
             return;
         }
-	ESP_LOGI(LOG_TAG, "Sending beacon (with key index %d)", key_index);
-        vTaskDelay(10);
+    delay_in_s = 30 + esp_random()%30; // let's switch keys between 30 and 60 seconds so it's harder to find a pattern
+	ESP_LOGI(LOG_TAG, "*****Sending beacon (with key index %d) for the next %d seconds", key_index, delay_in_s);
+	vTaskDelay(10);
 	esp_ble_gap_stop_advertising(); // Stop immediately after first beacon
-	vTaskDelay(DELAY_IN_S * 100); // pause after the public key has been broadcasted once
-	ESP_LOGI(LOG_TAG, "Woke up from sleep");
-	key_index = (key_index + 1) % (sizeof(public_keys)/sizeof(public_keys[0]));
+	vTaskDelay(delay_in_s * 100); // pause after the public key has been broadcasted once
+
+	esp_restart();
     }   
 }
